@@ -1,0 +1,21 @@
+// Cloudflare Worker-config voor schatkaart.julietous.workers.dev.
+// Publiceren met Wrangler: npx wrangler deploy vanuit deze map.
+// De map ./site bevat de app; src/worker.js beantwoordt alleen /api/* (optionele sync tussen eigen toestellen).
+// Collecties staan in de browser van elke bezoeker; de Worker bewaart enkel versleutelde sync-kopieën in KV.
+//
+// Eenmalig vóór de eerste deploy: npx wrangler kv namespace create SYNC
+// en zet de id die Wrangler teruggeeft hieronder (gedaan op 8 nov 2026).
+// Lokaal testen met sync: npx wrangler dev (gebruikt een lokale KV).
+{
+  "name": "schatkaart",
+  "main": "src/worker.js",
+  "compatibility_date": "2026-10-01",
+  "assets": {
+    "directory": "./site",
+    "binding": "ASSETS",
+    "html_handling": "auto-trailing-slash"
+  },
+  "kv_namespaces": [
+    { "binding": "SYNC", "id": "7081772f1dd440a99b4bebc43dba8cc9" }
+  ]
+}

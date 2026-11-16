@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Schatkaart detector tests</title>
+<style>
+  :root { --ink: #2b1d3f; --paper: #fff4dc; --ok: #1f9d68; --bad: #d1495b; }
+  body { margin: 0; padding: 16px; font: 15px/1.4 system-ui, sans-serif; color: var(--ink); background: var(--paper); }
+  h1 { font-size: 1.3rem; margin: 0 0 4px; }
+  .case { display: grid; grid-template-columns: minmax(0, 640px) 200px minmax(0, 1fr); gap: 14px; align-items: start; margin: 16px 0; padding: 12px; background: #fff; border: 3px solid var(--ink); border-radius: 16px; }
+  @media (max-width: 900px) { .case { grid-template-columns: 1fr; } }
+  canvas { max-width: 100%; height: auto; border-radius: 8px; border: 2px solid var(--ink); display: block; }
+  pre { margin: 0; white-space: pre-wrap; font: 13px/1.45 ui-monospace, Consolas, monospace; }
+  .pass { color: var(--ok); font-weight: 700; } .fail { color: var(--bad); font-weight: 700; }
+  #summary { font-weight: 700; }
+</style>
+</head>
+<body>
+<h1>Schatkaart: detector and recognition on real camera frames</h1>
+<p>Each fixture is fed to the app's own code as if it were a camera frame. The guide (dashed) sits where the app puts it for that frame; the outline the detector finds is drawn in green, the expected card corners in pink.</p>
+<p id="summary">Running…</p>
+<div id="out"></div>
+
+<script type="module">
+import { EdgeTracker, warpCard } from '../site/js/detect.js';
+import { loadCatalog } from '../site/js/catalog.js';
+import { recognize } from '../site/js/recognize.js';
+
+// Fixtures: a real photo, where the app's guide would sit, and what should be found.
+// `guide` defaults to the app's own layout (3:4 viewfinder, guide 80% tall at 47%);
+// `aimX` shifts it horizontally as if the camera was aimed at another card.
+const FIXTURES = [
+  {
+    name: 'Binder page, webcam, Venusaur (Pokémon Rumble) in a sleeve',
+    src: 'fixtures/binder-venusaur-cherrim.jpg',
+    aimX: -50,
+    expectCard: 'ru1-1',
+    corners: [[393, 148], [757, 138], [780, 556], [489, 556]],
+  },
+];
+
+function appGuide(fw, fh, aimX = 0) {
+  // viewfinder is 3:4 with object-fit: cover
+  const vfRatio = 3 / 4;
+  let visW = fw; let visH = fw / vfRatio;
+  if (visH > fh) { visH = fh; visW = fh * vfRatio; }
+  const visX = (fw - visW) / 2 + aimX;
+  const visY = (fh - visH) / 2;
+  const gh = 0.8 * visH;
+  const gw = gh * 63 / 88;
+  return { sx: visX + (visW - gw) / 2, sy: visY + 0.47 * visH - gh / 2, sw: gw, sh: gh };
+}
+
+const loadImg = (src) => new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = src; });
+
+const out = document.getElementById('out');
+let pass = 0;
+let total = 0;
+const report = [];
+const cat = await loadCatalog('en');
+
+for (const f of FIXTURES) {
+  total++;
+  const img = await loadImg(f.src);
+  const frame = document.createElement('canvas');
+  frame.width = img.naturalWidth; frame.height = img.naturalHeight;
+  frame.getContext('2d').drawImage(img, 0, 0);
+  frame.videoWidth = frame.width; frame.videoHeight = frame.height;
+  const roi = appGuide(frame.width, frame.height, f.aimX || 0);
+
+  const t = new EdgeTracker();
+  let st;
+  const t0 = performance.now();
+  for (let i = 0; i < 8; i++) st = t.update(frame, roi, t0 + i * 70);
+  const ms = (performance.now() - t0) / 8;
+
+  // overlay
+  const view = document.createElement('canvas');
+  view.width = frame.width; view.height = frame.height;
+  const g = view.getContext('2d');
+  g.drawImage(frame, 0, 0);
+  g.setLineDash([10, 8]); g.strokeStyle = '#fff'; g.lineWidth = 3; g.strokeRect(roi.sx, roi.sy, roi.sw, roi.sh); g.setLineDash([]);
+  const poly = (q, color, w) => { g.beginPath(); q.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y))); g.closePath(); g.strokeStyle = color; g.lineWidth = w; g.stroke(); };
+  poly(f.corners, '#ff8fab', 3);
+  if (st.quad) poly(st.quad, '#3ddc97', 5);
+
+  let err = null;
+  if (st.quad) {
+    const width = Math.hypot(f.corners[1][0] - f.corners[0][0], f.corners[1][1] - f.corners[0][1]);
+    err = Math.max(...st.quad.map((p, i) => Math.hypot(p[0] - f.corners[i][0], p[1] - f.corners[i][1]))) / width * 100;
+  }
+  const tol = f.partial ? 8 : 5;
+  // A card that runs off the photo can't be scanned anyway: no outline is the right answer there.
+  const detOk = (err != null && err < tol) || (f.partial && err == null);
+
+  // recognition on what the app would scan
+  const card = st.quad ? warpCard(frame, st.quad, 760) : null;
+  let recLine = 'not run (no outline)';
+  let recOk = false;
+  if (card) {
+    const r = await recognize(cat, card);
+    const top = r.candidates.slice(0, 5).map((c, i) => `${i + 1}. ${c.card.id} ${c.card.name} (${c.card.set.name}) score ${c.score.toFixed(2)}`).join('\n   ');
+    recOk = r.candidates[0]?.card.id === f.expectCard;
+    const inTop = r.candidates.findIndex((c) => c.card.id === f.expectCard);
+    recLine = `${recOk ? 'top match' : inTop >= 0 ? `expected card is #${inTop + 1} in the list` : 'expected card not in the list'} · confident=${r.confident}\n   ${top}\n   number text: ${JSON.stringify(r.debug.numberText.replace(/\s+/g, ' ').slice(0, 160))}\n   name text: ${JSON.stringify(r.debug.nameText.replace(/\s+/g, ' ').slice(0, 120))}`;
+  }
+  const ok = detOk && (recOk || !card);
+  if (ok) pass++;
+
+  const box = document.createElement('div');
+  box.className = 'case';
+  const info = document.createElement('div');
+  info.innerHTML = `<pre><b>${f.name}</b>
+outline: <span class="${detOk ? 'pass' : 'fail'}">${st.quad ? `corner error ${err.toFixed(1)}% of card width` : 'NOT FOUND'}</span> (tolerance ${tol}%) · ${ms.toFixed(1)} ms/frame
+recognition: <span class="${recOk ? 'pass' : 'fail'}">${recLine.split('\n')[0]}</span>
+${recLine.split('\n').slice(1).join('\n')}</pre>`;
+  box.append(view, card || document.createElement('div'), info);
+  out.append(box);
+  report.push(`${detOk ? 'PASS' : 'FAIL'} outline · ${recOk ? 'PASS' : 'FAIL'} card · ${f.name} · ${err == null ? 'not found' : err.toFixed(1) + '%'} · ${recLine.split('\n')[0]}`);
+}
+document.getElementById('summary').textContent = `${pass}/${total} fixtures pass`;
+window.__report = report.join('\n');
+</script>
+</body>
+</html>
