@@ -2,12 +2,12 @@
 // the OCR engine, fonts and card images are cached on first use. Card data and prices always
 // come from the network; the app keeps its own copy of the card list in IndexedDB.
 
-const SHELL = 'schatkaart-shell-v8';
+const SHELL = 'schatkaart-shell-v9';
 const RUNTIME = 'schatkaart-runtime-v7';
 const FILES = [
   './', './index.html', './styles.css', './manifest.webmanifest', './icon.svg',
   './js/app.js', './js/util.js', './js/db.js', './js/catalog.js', './js/recognize.js',
-  './js/camera.js', './js/detect.js', './js/sync.js', './js/mascot.js',
+  './js/camera.js', './js/detect.js', './js/sync.js', './js/mascot.js', './data/extra-cards.json',
 ];
 const RUNTIME_HOSTS = ['cdn.jsdelivr.net', 'fonts.googleapis.com', 'fonts.gstatic.com', 'assets.tcgdex.net'];
 

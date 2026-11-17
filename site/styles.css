@@ -672,3 +672,9 @@ dialog.sheet::backdrop { background: rgba(30, 16, 46, .5); backdrop-filter: blur
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
+
+/* v3: versions grouped per artwork, with set code, number and print type */
+.artgroup { margin-top: 14px; }
+.artgroup h4 { margin: 0 0 8px; font-size: 15px; }
+.vkind { display: block; font-size: 12px; line-height: 1.3; opacity: .8; margin-top: 2px; }
+.vnum .numtag + .numtag { margin-left: 4px; }

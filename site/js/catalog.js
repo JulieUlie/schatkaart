@@ -5,7 +5,7 @@ import { kvGet, kvSet } from './db.js';
 import { norm, normNum, safeDecode, sim } from './util.js';
 
 export const API = 'https://api.tcgdex.net/v2';
-const INDEX_VERSION = 3;
+const INDEX_VERSION = 4; // 4: merged with data/extra-cards.json
 const INDEX_MAX_AGE = 3 * 864e5; // refresh the index every few days so new sets show up
 
 export const LANGS = {
@@ -104,14 +104,53 @@ export function loadCatalog(lang, { force = false, onUpdate } = {}) {
 }
 
 async function download(lang) {
-  const [cards, sets, pocket] = await Promise.all([
+  const [cards, sets, pocket, extra] = await Promise.all([
     getJSON(`${API}/${lang}/cards`),
     getJSON(`${API}/${lang}/sets`),
     getJSON(`${API}/${lang}/series/tcgp`).catch(() => ({ sets: [] })),
+    lang === 'en' ? fetch('data/extra-cards.json').then((r) => (r.ok ? r.json() : null)).catch(() => null) : null,
   ]);
   const raw = build(lang, cards, sets, new Set((pocket.sets || []).map((s) => s.id)));
+  if (extra) mergeExtra(raw, extra);
   await kvSet('catalog:' + lang, raw).catch(() => {});
   return raw;
+}
+
+/**
+ * Second source (data/extra-cards.json, built by scripts/build-extra-cards.mjs from the Pokémon TCG
+ * data set): images and rarity where TCGdex has none, set codes and release dates, and cards that
+ * TCGdex lacks. Extra cards get ids starting with "x:" and have no TCGdex details.
+ */
+function mergeExtra(raw, extra) {
+  const sets = new Map(raw.sets.map((s) => [s.id, s]));
+  for (const [id, e] of Object.entries(extra.sets || {})) {
+    let s = sets.get(id);
+    if (!s) {
+      if (e.tcgdex) continue; // a TCGdex set that is left out on purpose (Pocket)
+      s = { id, name: e.name, official: e.official ?? 0, total: e.total ?? 0, logo: null, symbol: null, order: -1, extra: true };
+      sets.set(id, s);
+      raw.sets.push(s);
+    }
+    s.code = e.code || null;
+    s.released = e.released || null;
+    s.series = e.series || null;
+  }
+  // Extra-only sets are slotted in by release date so "newest first" still holds.
+  const dated = raw.sets.filter((s) => !s.extra && s.released).sort((a, b) => a.released.localeCompare(b.released));
+  for (const s of raw.sets.filter((x) => x.extra)) {
+    const before = dated.filter((d) => s.released && d.released <= s.released).pop();
+    s.order = before ? before.order + 0.5 : -1;
+  }
+  for (const c of raw.cards) {
+    const m = extra.more?.[c.id];
+    if (!m) continue;
+    if (!c.image && m[0]) c.image = m[0];
+    if (m[1]) c.rarity = m[1];
+  }
+  for (const [setId, localId, name, image, rarity] of extra.cards || []) {
+    if (!sets.has(setId)) continue;
+    raw.cards.push({ id: `x:${setId}-${localId}`, setId, localId, name, image, rarity, extra: true });
+  }
 }
 
 // ---------- full card details ----------
@@ -120,14 +159,23 @@ const cardCache = new Map();
 export function getCard(id, lang) {
   const key = lang + ':' + id;
   if (cardCache.has(key)) return cardCache.get(key);
-  const p = getJSON(`${API}/${lang}/cards/${id}`).then(withBackupPrices);
+  const brief = current?.byId.get(id);
+  // Cards from the second source have no TCGdex page: build a small card and look up its price.
+  const p = brief?.extra
+    ? withBackupPrices({ id, localId: brief.localId, name: brief.name, rarity: brief.rarity, image: brief.image, set: { id: brief.setId, name: brief.set.name }, variants: { normal: true } })
+    : getJSON(`${API}/${lang}/cards/${id}`).then(withBackupPrices);
   cardCache.set(key, p);
   p.catch(() => cardCache.delete(key));
   return p;
 }
 
 export function imageUrl(image, quality = 'low') {
-  return image ? `${image}/${quality}.webp` : null;
+  if (!image) return null;
+  // Images from the Pokémon TCG data set are full file URLs; the large one ends in _hires.png.
+  if (!image.startsWith('https://assets.tcgdex.net')) {
+    return quality === 'high' ? image.replace(/\.png$/i, '_hires.png').replace(/\/small$/, '/large') : image;
+  }
+  return `${image}/${quality}.webp`;
 }
 
 // ---------- manual search ----------

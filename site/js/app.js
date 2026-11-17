@@ -666,14 +666,51 @@ function detailHTML({ name, image, setName, setSymbol, num, rarity, full, varian
   </div>`;
 }
 
+// What kind of print this is, from the rarity and the number (secret rares sit above the set size).
+function printKind(card) {
+  const r = (card.rarity || '').toLowerCase();
+  const n = parseInt(card.localId, 10);
+  const off = card.set?.official;
+  if (/special illustration/.test(r)) return 'Special illustration';
+  if (/illustration/.test(r)) return 'Illustration rare';
+  if (/hyper|rainbow|gold/.test(r)) return 'Gold / rainbow';
+  if (/promo/.test(r) || /promo/i.test(card.set?.name || '')) return 'Promo';
+  if (/full art|ultra/.test(r)) return 'Full art';
+  if (Number.isFinite(n) && off && n > off) return 'Secret rare';
+  if (/^[A-Z]+\d/.test(card.localId || '')) return 'Subset';
+  return null;
+}
+
 function versionCard(card, { current = false, sameArt = false } = {}) {
+  const code = card.set?.code;
+  const year = card.set?.released?.slice(0, 4);
+  const kind = printKind(card);
   return `<button class="vcard ${current ? 'current' : ''}" type="button" data-pick="${esc(card.id)}" aria-pressed="${current}">
     ${sameArt ? '<span class="badge">Same art</span>' : ''}
     ${img(card.image, 'low')}
     <span class="vset">${card.set?.symbol ? `<img src="${esc(card.set.symbol)}.png" alt="" loading="lazy" onerror="this.remove()">` : ''}<span>${esc(card.set?.name || '')}</span></span>
-    <span class="vnum"><span class="numtag">${esc(numLabel(card))}</span></span>
+    <span class="vnum">${code ? `<span class="numtag">${esc(code)}</span>` : ''}<span class="numtag">${esc(numLabel(card))}</span>${year ? `<small class="muted"> ${esc(year)}</small>` : ''}</span>
+    ${card.rarity || kind ? `<span class="vkind">${[kind, card.rarity].filter(Boolean).filter((x, i, a) => a.indexOf(x) === i).map(esc).join(' · ')}</span>` : ''}
     <span class="vprice" data-price-for="${esc(card.id)}">…</span>
   </button>`;
+}
+
+// Versions grouped per artwork: "Art 1" holds every set/number that reuses the same picture.
+function versionGroups(versions, currentId) {
+  const groups = new Map();
+  for (const e of versions) {
+    const k = e.art ?? 'none';
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(e);
+  }
+  const list = [...groups.entries()].sort((a, b) => (b[1].some((e) => e.card.id === currentId) - a[1].some((e) => e.card.id === currentId)) || (a[0] === 'none') - (b[0] === 'none'));
+  let n = 0;
+  return list.map(([k, items]) => {
+    const title = k === 'none' ? 'No picture to compare' : `Art ${++n}`;
+    const mine = items.some((e) => e.card.id === currentId);
+    return `<div class="artgroup"><h4>${esc(title)}${mine ? ' · your scan' : ''} <small class="muted">${items.length} print${items.length === 1 ? '' : 's'}</small></h4>
+      <div class="vgrid">${items.map((e) => versionCard(e.card, { current: e.card.id === currentId, sameArt: !!e.sameArt })).join('')}</div></div>`;
+  }).join('');
 }
 
 function renderSheet() {
@@ -706,10 +743,10 @@ function renderSheet() {
       </div>
       <div class="versions">
         <h3><svg><use href="#i-layers"/></svg>All versions of ${esc(c.name)}</h3>
-        <p>Same name, different print: set, number and price can differ. ${P.photo ? 'Sorted by how much the artwork looks like your photo.' : 'Newest sets first.'}</p>
-        <div class="vgrid">${versions
-    ? versions.map((e) => versionCard(e.card, { current: e.card.id === c.id, sameArt: !!e.sameArt })).join('')
-    : `<p class="muted">${mascotSVG('think').replace('class="schatje"', 'class="schatje" style="width:44px;display:inline-block;vertical-align:middle"')} Looking up every print…</p>`}</div>
+        <p>Same name, different print: grouped per artwork, each with its set code, number and type. Prices differ per print!</p>
+        ${versions
+    ? versionGroups(versions, c.id)
+    : `<div class="vgrid"><p class="muted">${mascotSVG('think').replace('class="schatje"', 'class="schatje" style="width:44px;display:inline-block;vertical-align:middle"')} Looking up every print…</p></div>`}
         ${others.length ? `<h3>Or maybe one of these?</h3><div class="vgrid">${others.map((e) => versionCard(e.card)).join('')}</div>` : ''}
         <p style="margin-top:18px"><button class="btn btn-small btn-ghost" type="button" data-act="search"><svg><use href="#i-search"/></svg>None of these? Search by name</button></p>
       </div>`;

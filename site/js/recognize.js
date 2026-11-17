@@ -290,7 +290,50 @@ export async function versionsOf(cat, card, photo, limit = 40) {
     for (const e of list) e.sameArt = e.img != null && top != null && e.img >= Math.min(0.82, top - 0.08);
     list.sort((a, b) => (b.sameArt - a.sameArt) || ((b.img ?? -1) - (a.img ?? -1)));
   }
+  await groupByArt(list);
   return list;
+}
+
+// Artwork window of a card (above the attacks), so reprints in a different frame still match.
+const AW = 18;
+const AH = 12;
+const artCache = new Map();
+function artDescriptor(card) {
+  if (!card.image) return Promise.resolve(null);
+  if (artCache.has(card.id)) return artCache.get(card.id);
+  const p = Promise.race([
+    loadImage(imageUrl(card.image, 'low')).then((im) => {
+      const c = document.createElement('canvas');
+      c.width = AW; c.height = AH;
+      const g = c.getContext('2d', { willReadFrequently: true });
+      g.imageSmoothingQuality = 'high';
+      g.drawImage(im, im.width * 0.1, im.height * 0.12, im.width * 0.8, im.height * 0.36, 0, 0, AW, AH);
+      return descriptor(c);
+    }),
+    new Promise((r) => setTimeout(() => r(null), 5000)),
+  ]).catch(() => null);
+  artCache.set(card.id, p);
+  return p;
+}
+
+/** Gives every print an `art` number: prints with the same number share the same artwork. */
+async function groupByArt(list) {
+  await pool(list, 6, async (e) => { e.artVec = await artDescriptor(e.card); });
+  const parent = list.map((_, i) => i);
+  const find = (i) => (parent[i] === i ? i : (parent[i] = find(parent[i])));
+  for (let i = 0; i < list.length; i++) {
+    for (let j = i + 1; j < list.length; j++) {
+      const a = list[i].artVec; const b = list[j].artVec;
+      if (a && b && corr(a, b) >= 0.86) parent[find(j)] = find(i);
+    }
+  }
+  const ids = new Map();
+  list.forEach((e, i) => {
+    const r = find(i);
+    if (!ids.has(r)) ids.set(r, ids.size + 1);
+    e.art = e.artVec ? ids.get(r) : null;
+    delete e.artVec;
+  });
 }
 
 /**
