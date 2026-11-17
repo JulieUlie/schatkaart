@@ -19,6 +19,19 @@ Made for yard sales (scan a stack onto the **pile** and see its total) and for s
 | `site/js/db.js` | The collection lives in the visitor's own browser (IndexedDB). Several **profiles** can share one device, each with its own collection and pile. |
 | `site/js/sync.js` + `src/worker.js` | Optional sync between someone's own devices with a random 20-character code. The collection is encrypted with AES-GCM in the browser; the Worker only stores the encrypted blob in KV under a hash of the code. No accounts and no sharing between people. |
 
+## Tests
+
+Playwright tests in TypeScript: `npm install`, then `npm test`. Playwright starts a local copy with `wrangler dev` and an empty local KV, so the sync tests never touch real sync data. Card data and prices from TCGdex, and the second card source, are faked in the browser tests (`tests/support/tcgdex.ts`, modelled on real TCGdex answers), so the tests are predictable and need no third party.
+
+| Layer | Folder | What it covers |
+| --- | --- | --- |
+| Sync API | `tests/api/` | Storing and reading encrypted collections, revisions and conflicts between devices, what the server keeps, refused input, the 8 MB limit, delete |
+| Logic | `tests/logic/` | The app's own modules in the browser: text helpers, reading card numbers from OCR text, search (numbers, typos, the second source, Pocket cards left out), prices per variant and source, sync codes, merging, and end-to-end encrypted sync where the server never sees a card name |
+| Detector | `tests/logic/detect.spec.ts` | Card-edge detection on the real binder photo in `test/fixtures` (corner error must stay under 5% of the card width) |
+| UI | `tests/ui/` | Welcome window, search, the pile and its total, undo, price source, collection, JSON/CSV export and import on a second device, camera errors, an axe accessibility scan |
+
+74 tests, stable over repeated runs. One known deviation is kept visible as `test.fail`: the detector's worst corner is 5.5% off on the binder photo, just over the 5% limit.
+
 ## Run locally
 
 Without sync (static files only):
