@@ -295,7 +295,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .tile .ph::after, .vcard .ph::after { font-size: 2rem; }
 
 /* ---------- scan view ---------- */
-.scan-grid { display: grid; gap: 22px; }
+.scan-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 22px; } /* v4: minmax(0) so a long set name can't widen the page */
 @media (min-width: 900px) {
   .scan-grid { grid-template-columns: minmax(0, 520px) minmax(0, 1fr); align-items: start; }
 }
@@ -363,6 +363,14 @@ button, input, select, textarea { font: inherit; color: inherit; }
   .vf-idle p { font-size: .88rem; }
 }
 .vf-error { color: var(--red); font-weight: 600; margin-top: 10px; }
+/* v4: once a result card floats over the start screen (after a search or a photo), the start screen turns
+   compact and moves up, so "Take a photo", "Pick a photo" and "Search by name" stay visible above it. */
+.viewfinder:not(.cam-on):has(> .mini:not([hidden])) .vf-idle { justify-content: flex-start; padding-top: 14px; }
+.viewfinder:not(.cam-on):has(> .mini:not([hidden])) :is(.idle-mascot, .vf-idle > p:not(.vf-error)) { display: none; }
+.viewfinder:not(.cam-on):has(> .mini:not([hidden])) .vf-idle h1 { font-size: 1.2rem; margin: 0 0 6px; }
+.viewfinder:not(.cam-on):has(> .mini:not([hidden])) .vf-idle .btn-big { font-size: 1rem; padding: .6em 1.2em; }
+.viewfinder:not(.cam-on):has(> .mini:not([hidden])) .idle-alt { margin-top: 8px; }
+@media (max-width: 359.98px) { .viewfinder:not(.cam-on):has(> .mini:not([hidden])) .vf-idle h1 { display: none; } }
 .vf-db { font-size: .82rem; color: var(--muted); margin-top: 8px; min-height: 1.2em; }
 
 /* Shutter dead centre under the viewfinder: equal side columns, whether or not the flashlight button shows. */
@@ -398,15 +406,15 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .pile-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
 .pile-head p { margin: 0; font-size: .92rem; }
 .pile-total { font-size: 1.35rem; padding: .2em .6em; }
-.pile-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; max-height: 60vh; overflow: auto; }
+.pile-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; max-height: 60vh; overflow: auto; }
 .pile-list li {
   display: flex; align-items: center; gap: 10px; padding: 6px 8px 6px 6px; border-radius: 16px; background: var(--card-2);
   border: 2.5px solid var(--ink); animation: pop-in .3s cubic-bezier(.2, 1.4, .4, 1);
 }
 .pile-list li > button.open { all: unset; cursor: pointer; display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; }
 .pile-list img, .pile-list .ph { width: 38px; aspect-ratio: 63 / 88; border-radius: 4px; border: 2px solid var(--ink); object-fit: cover; background: var(--lilac-2); flex: none; }
-.pile-list .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pile-list .meta { font-size: .8rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pile-list .name { display: block; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pile-list .meta { display: block; font-size: .8rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pile-list .txt { min-width: 0; flex: 1; }
 .pile-list .sticker { font-size: .9rem; transform: rotate(2deg); }
 .x-btn {
@@ -432,6 +440,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .stat:nth-child(4) { background: var(--pink-2); transform: rotate(1.5deg); }
 .stat small { display: block; font-size: .75rem; font-weight: 600; color: var(--muted); }
 .stat b { font-size: 1.2rem; }
+.stats-note { flex: 1 1 100%; grid-column: 1 / -1; margin: 0; max-width: 46ch; }
 .toolbar { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 18px; }
 .toolbar .search-field { flex: 1 1 240px; }
 .toolbar .select-field { flex: 0 0 auto; }
@@ -613,6 +622,8 @@ dialog.sheet::backdrop { background: rgba(30, 16, 46, .5); backdrop-filter: blur
 .toast span { flex: 1; }
 .toast .btn { padding: .4em .8em; font-size: .85rem; box-shadow: 0 2px 0 var(--ink); }
 .toast.out { animation: pop-out .25s ease forwards; }
+/* v4: on wide screens the tab bar sits in the header, where a top toast covered it; toasts go to the bottom there */
+@media (min-width: 860px) { .toasts { top: auto; bottom: 24px; left: auto; right: 24px; transform: none; width: min(400px, calc(100vw - 48px)); } }
 .confetti { position: fixed; inset: 0; pointer-events: none; z-index: 120; overflow: hidden; }
 .confetti i {
   position: absolute; top: 38%; left: 50%; width: 12px; height: 12px; border: 2px solid var(--ink); border-radius: 3px;

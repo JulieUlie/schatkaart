@@ -32,8 +32,8 @@ class Schatkaart {
   }
 
   async find(query: string) {
-    // The round magnifier under the viewfinder. The text button on the start screen gets covered by the
-    // "Added to your pile" panel after the first card, so a user taps the magnifier, and so do we.
+    // The round magnifier under the viewfinder, always in the same place. (Up to v3 the text button on the
+    // start screen was covered by the "Added to your pile" panel after the first card; see the v4 tests.)
     await this.page.locator('.controls').getByRole('button', { name: 'Search by name' }).click();
     await expect(this.searchDialog).toBeVisible();
     await this.searchDialog.getByRole('searchbox').fill(query);
@@ -283,5 +283,145 @@ test.describe('Camera and accessibility', () => {
   test('the scan screen has no detectable WCAG violations', async ({ app, page }) => {
     const results = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa']).analyze();
     expect(results.violations.map((v) => `${v.id}: ${v.nodes.length}× ${v.help}`)).toEqual([]);
+  });
+
+  test('the scan screen with a card on the pile has no detectable WCAG violations', async ({ app, page }) => {
+    await app.add('Charizard', 'Charizard VMAX', 'Darkness Ablaze');
+
+    const results = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa']).analyze();
+    expect(results.violations.map((v) => `${v.id}: ${v.nodes.length}× ${v.help}`)).toEqual([]);
+  });
+});
+
+// Regression tests for the v4 refinements (23 Nov 2026).
+test.describe('v4: layout', () => {
+  test('a card on the pile never makes the page scroll sideways @mobile', async ({ app, page }) => {
+    await app.add('Charizard', 'Charizard VMAX', 'Darkness Ablaze');
+
+    // v3: the pile row's text did not shrink, so the whole scan page grew wider than the phone
+    const { scroll, client } = await page.evaluate(() => ({ scroll: document.documentElement.scrollWidth, client: document.documentElement.clientWidth }));
+    expect(scroll).toBeLessThanOrEqual(client);
+    // name and set sit on two lines (v3 glued them together: "Charizard VMAXDarkness Ablaze")
+    const name = await app.pile.locator('.name').first().boundingBox();
+    const meta = await app.pile.locator('.meta').first().boundingBox();
+    expect(meta!.y).toBeGreaterThanOrEqual(name!.y + name!.height - 1);
+  });
+
+  test('the start-screen buttons stay usable once a card was found @mobile', async ({ app, page }) => {
+    await app.add('Pikachu', 'Pikachu', 'Base Set');
+    await expect(page.locator('#mini')).toBeVisible();
+
+    // v3: the "Added to your pile" panel covered these buttons; a click on them now really lands
+    const start = page.locator('#vfIdle');
+    await start.getByRole('button', { name: 'Search by name' }).click();
+    await expect(app.searchDialog).toBeVisible();
+    await app.searchDialog.getByRole('button', { name: 'Close' }).click();
+    const chooser = page.waitForEvent('filechooser');
+    await start.getByRole('button', { name: 'Take a photo', exact: true }).click();
+    await chooser;
+  });
+
+  test('on a wide screen a message does not cover the tab bar', async ({ app, page }) => {
+    await app.add('Pikachu', 'Pikachu', 'Base Set');
+
+    // the first message of a stack sits closest to the edge (v3: top centre, right over the header's tab bar)
+    const toast = await app.toasts.locator('.toast', { hasText: 'Pikachu added to your pile' }).boundingBox();
+    const tabs = await page.getByRole('navigation', { name: 'Main' }).boundingBox();
+    const overlap = toast!.x < tabs!.x + tabs!.width && tabs!.x < toast!.x + toast!.width
+      && toast!.y < tabs!.y + tabs!.height && tabs!.y < toast!.y + toast!.height;
+    expect(overlap).toBe(false);
+  });
+});
+
+test.describe('v4: prices from the other market', () => {
+  // Charizard VMAX only has a TCGplayer (dollar) price in the fake TCGdex.
+  test('the pile shows that price in dollars and keeps it out of the euro total', async ({ app }) => {
+    await app.add('Charizard', 'Charizard VMAX', 'Darkness Ablaze');
+
+    await expect(app.pile.locator('.sticker')).toHaveText('US$40.00'); // v3 showed "€40.00"
+    await expect(app.pileTotal).toHaveText('€0.00'); // v3 added the dollars to the euro total
+    await expect(app.pileTitle).toHaveText('Pile · 1 card (1 only on TCGplayer)');
+  });
+
+  test('the collection worth counts only euro prices and says what it left out', async ({ app, page }) => {
+    await app.add('Charizard', 'Charizard VMAX', 'Darkness Ablaze', 'collection');
+    await app.add('Pikachu', 'Pikachu', 'Base Set', 'collection');
+
+    await app.tab('Collection');
+
+    await expect(page.locator('#stats')).toContainText('€2.50');
+    await expect(page.locator('#stats')).toContainText("1 card only has a TCGplayer price, so it isn't in the worth.");
+    await expect(page.locator('#collGrid .tile', { hasText: 'Charizard VMAX' }).locator('.sticker')).toHaveText('US$40.00');
+  });
+
+  test('with TCGplayer chosen, the same card counts in the dollar total', async ({ app }) => {
+    await app.add('Charizard', 'Charizard VMAX', 'Darkness Ablaze');
+
+    await app.tab('Settings');
+    await app.page.getByRole('radio', { name: 'TCGplayer ($)' }).click();
+    await app.tab('Scan');
+
+    await expect(app.pileTotal).toHaveText('US$40.00');
+    await expect(app.pileTitle).toHaveText('Pile · 1 card');
+  });
+});
+
+test.describe('v4: keyboard and feedback', () => {
+  test('"Found cards go to" works like a radio group: one Tab stop, arrow keys pick', async ({ app, page }) => {
+    const group = page.getByRole('radiogroup', { name: 'Found cards go to' });
+    const pile = group.getByRole('radio', { name: 'Pile' });
+    const collection = group.getByRole('radio', { name: 'Collection' });
+    const nowhere = group.getByRole('radio', { name: 'Nowhere' });
+    await expect(pile).toHaveAttribute('tabindex', '0');
+    await expect(collection).toHaveAttribute('tabindex', '-1');
+
+    await pile.focus();
+    await page.keyboard.press('ArrowRight');
+    await expect(collection).toBeFocused();
+    await expect(collection).toHaveAttribute('aria-checked', 'true');
+    await expect(collection).toHaveAttribute('tabindex', '0');
+    await expect(pile).toHaveAttribute('tabindex', '-1');
+
+    await page.keyboard.press('End');
+    await expect(nowhere).toHaveAttribute('aria-checked', 'true');
+    await page.keyboard.press('ArrowRight'); // wraps around
+    await expect(pile).toHaveAttribute('aria-checked', 'true');
+
+    // the choice is remembered
+    await page.reload();
+    await expect(pile).toHaveAttribute('aria-checked', 'true');
+  });
+
+  test('the theme setting can be changed with the arrow keys', async ({ app, page }) => {
+    await app.tab('Settings');
+    const auto = page.getByRole('radiogroup', { name: 'Theme' }).getByRole('radio', { name: 'Auto' });
+
+    await auto.focus();
+    await page.keyboard.press('ArrowRight');
+
+    await expect(page.getByRole('radio', { name: 'Light' })).toHaveAttribute('aria-checked', 'true');
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+  });
+
+  test('"Refresh prices" says so when the price service is down, and can be tried again', async ({ app, page }) => {
+    await app.add('Pikachu', 'Pikachu', 'Base Set', 'collection');
+    await page.reload(); // empty the in-memory card cache, so a refresh really asks TCGdex
+    await page.route('https://api.tcgdex.net/**', (r) => r.fulfill({ status: 503, body: 'down' }));
+    await app.tab('Collection');
+
+    const refresh = page.getByRole('button', { name: 'Refresh prices' });
+    await refresh.click();
+
+    await expect(app.toasts).toContainText("Couldn't reach the price service. Your old prices are kept.");
+    await expect(refresh).toBeEnabled();
+    await expect(page.locator('#stats')).toContainText('€2.50');
+  });
+
+  test('the search fields have a name a screen reader can say', async ({ app, page }) => {
+    await app.tab('Collection');
+    await expect(page.getByRole('searchbox', { name: 'Search your collection' })).toBeVisible();
+    await app.tab('Scan');
+    await app.find('Pikachu');
+    await expect(app.searchDialog.getByRole('searchbox', { name: 'Card name or number' })).toBeVisible();
   });
 });

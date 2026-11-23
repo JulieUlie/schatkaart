@@ -166,7 +166,7 @@
       <div class="toolbar">
         <label class="field search-field">
           <svg><use href="#i-search"/></svg>
-          <input id="collSearch" type="search" placeholder="Search by name, set or number" autocomplete="off">
+          <input id="collSearch" type="search" placeholder="Search by name, set or number" autocomplete="off" aria-label="Search your collection">
         </label>
         <label class="field select-field">
           <span class="visually-hidden">Sort</span>
@@ -271,7 +271,7 @@
     <h2>Find a card</h2>
     <label class="field search-field">
       <svg><use href="#i-search"/></svg>
-      <input id="searchInput" type="search" placeholder="e.g. Pikachu, Charizard 4/102, Furret 136" autocomplete="off" enterkeyhint="search">
+      <input id="searchInput" type="search" placeholder="e.g. Pikachu, Charizard 4/102, Furret 136" autocomplete="off" enterkeyhint="search" aria-label="Card name or number" aria-describedby="searchHint">
     </label>
     <p class="tiny muted" id="searchHint">Type a name, optionally with the number at the bottom of the card.</p>
     <ul class="results" id="searchResults"></ul>

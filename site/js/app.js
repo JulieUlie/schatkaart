@@ -55,7 +55,19 @@ const profile = () => state.profiles.find((p) => p.id === state.profileId);
 const live = () => state.items.filter((i) => !i.deleted);
 const src = () => state.settings.source;
 const displayCur = () => (src() === 'tcgplayer' ? 'USD' : 'EUR');
-const valueOf = (e) => e?.prices?.[src()]?.v ?? e?.prices?.[src() === 'cardmarket' ? 'tcgplayer' : 'cardmarket']?.v ?? null;
+const otherSrc = () => (src() === 'cardmarket' ? 'tcgplayer' : 'cardmarket');
+const SOURCE_LABEL = { cardmarket: 'Cardmarket', tcgplayer: 'TCGplayer' };
+// The price of a stored card in the chosen market. If that market has none, the other market's price is
+// shown in its own currency (v3 showed a TCGplayer dollar price with a euro sign and added it to the € total).
+function priceEntry(e) {
+  const own = e?.prices?.[src()]?.v;
+  if (own != null) return { v: own, cur: displayCur(), own: true };
+  const o = e?.prices?.[otherSrc()];
+  return o?.v != null ? { v: o.v, cur: o.c || (otherSrc() === 'tcgplayer' ? 'USD' : 'EUR'), own: false } : null;
+}
+// Only prices in the chosen market's currency count towards totals.
+const valueOf = (e) => e?.prices?.[src()]?.v ?? null;
+const stickerOf = (e) => { const p = priceEntry(e); return priceSticker(p?.v ?? null, p?.cur || displayCur()); };
 const saveSettings = () => LS.set('settings', state.settings);
 const saveProfiles = () => { LS.set('profiles', state.profiles); LS.set('profile', state.profileId); };
 
@@ -952,7 +964,8 @@ function renderPile() {
   const cur = displayCur();
   let total = 0;
   let unknown = 0;
-  for (const e of state.pile) { const v = valueOf(e); if (v == null) unknown++; else total += v; }
+  let otherOnly = 0;
+  for (const e of state.pile) { const p = priceEntry(e); if (!p) unknown++; else if (!p.own) otherOnly++; else total += p.v; }
   $('#pileTotal').textContent = money(total, cur);
   $('#pileTotal').className = `sticker pile-total tier-${tier(state.pile.length ? total : null).key}`;
   $('#pileEmpty').hidden = state.pile.length > 0;
@@ -960,10 +973,11 @@ function renderPile() {
   ul.innerHTML = state.pile.map((e) => `<li>
     <button class="open" type="button" data-open="${esc(e.id)}">${img(e.image)}
       <span class="txt"><span class="name">${esc(e.name)}</span><span class="meta">${[e.setName, numLabel(e), e.variant !== 'normal' && VARIANT_LABEL[e.variant]].filter(Boolean).map(esc).join(' · ')}</span></span>
-      ${priceSticker(valueOf(e), cur)}</button>
+      ${stickerOf(e)}</button>
     <button class="x-btn" type="button" data-remove="${esc(e.id)}" aria-label="Take ${esc(e.name)} off the pile"><svg><use href="#i-x"/></svg></button>
   </li>`).join('');
-  $('#pileTitle').textContent = state.pile.length ? `Pile · ${state.pile.length} card${state.pile.length === 1 ? '' : 's'}${unknown ? ` (${unknown} without price)` : ''}` : 'Pile';
+  const notes = [unknown && `${unknown} without price`, otherOnly && `${otherOnly} only on ${SOURCE_LABEL[otherSrc()]}`].filter(Boolean);
+  $('#pileTitle').textContent = state.pile.length ? `Pile · ${state.pile.length} card${state.pile.length === 1 ? '' : 's'}${notes.length ? ` (${notes.join(', ')})` : ''}` : 'Pile';
 }
 
 $('#pileList').addEventListener('click', async (e) => {
@@ -1008,17 +1022,19 @@ function renderCollection() {
   // qtyOf/str: tolerate items saved before imports were cleaned (missing or text fields)
   const qtyOf = (i) => Math.max(0, Number(i.qty) || 0);
   const str = (v) => (v == null ? '' : String(v));
-  if (sort === 'value') list.sort((a, b) => (valueOf(b) ?? -1) * qtyOf(b) - (valueOf(a) ?? -1) * qtyOf(a));
+  const sortValue = (i) => valueOf(i) ?? priceEntry(i)?.v ?? -1;
+  if (sort === 'value') list.sort((a, b) => sortValue(b) * qtyOf(b) - sortValue(a) * qtyOf(a));
   else if (sort === 'name') list.sort((a, b) => str(a.name).localeCompare(str(b.name)));
   else if (sort === 'set') list.sort((a, b) => str(a.setName).localeCompare(str(b.setName)) || str(a.localId).localeCompare(str(b.localId), undefined, { numeric: true }));
   else list.sort((a, b) => (b.addedAt || 0) - (a.addedAt || 0));
 
-  let count = 0; let value = 0; let paid = 0; let paidValue = 0; let hasPaid = false;
+  let count = 0; let value = 0; let paid = 0; let paidValue = 0; let hasPaid = false; let otherOnly = 0;
   for (const i of all) {
     const q = qtyOf(i);
     count += q;
     const v = valueOf(i);
     if (v != null) value += v * q;
+    else if (priceEntry(i)) otherOnly += q;
     if (i.paid != null && i.paidCur === cur) { hasPaid = true; paid += Number(i.paid) || 0; paidValue += (v ?? 0) * q; }
   }
   const p = profile();
@@ -1027,14 +1043,15 @@ function renderCollection() {
     <div class="stat"><small>Cards</small><b>${count.toLocaleString()}</b></div>
     <div class="stat"><small>Worth</small><b>${esc(money(value, cur))}</b></div>
     ${hasPaid ? `<div class="stat"><small>Paid</small><b>${esc(money(paid, cur))}</b></div>
-    <div class="stat"><small>${paidValue - paid >= 0 ? 'Profit' : 'Loss'}</small><b>${paidValue - paid >= 0 ? '+' : '−'}${esc(money(Math.abs(paidValue - paid), cur))}</b></div>` : ''}`;
+    <div class="stat"><small>${paidValue - paid >= 0 ? 'Profit' : 'Loss'}</small><b>${paidValue - paid >= 0 ? '+' : '−'}${esc(money(Math.abs(paidValue - paid), cur))}</b></div>` : ''}
+    ${otherOnly ? `<p class="tiny muted stats-note">${otherOnly.toLocaleString()} card${otherOnly === 1 ? '' : 's'} only ${otherOnly === 1 ? 'has' : 'have'} a ${SOURCE_LABEL[otherSrc()]} price, so ${otherOnly === 1 ? "it isn't" : "they aren't"} in the worth.</p>` : ''}`;
   $('#collEmpty').hidden = all.length > 0;
   $('#collGrid').innerHTML = list.map((i) => `<button class="tile" type="button" data-item="${esc(i.id)}">
       ${i.qty > 1 ? `<span class="qty">×${i.qty}</span>` : ''}
       ${img(i.image)}
       <span class="name">${esc(i.name)}</span>
       <span class="meta">${[i.setName, numLabel(i), i.variant !== 'normal' && VARIANT_LABEL[i.variant]].filter(Boolean).map(esc).join(' · ')}</span>
-      ${priceSticker(valueOf(i), cur)}
+      ${stickerOf(i)}
     </button>`).join('') + (all.length && !list.length ? '<p class="muted">Nothing matches that search.</p>' : '');
   const badge = $('#collBadge');
   badge.hidden = !count;
@@ -1054,23 +1071,29 @@ $('#refreshPrices').addEventListener('click', async () => {
   const all = live();
   if (!all.length || btn.disabled) return;
   btn.disabled = true;
-  const keys = [...new Set(all.map((i) => i.lang + '|' + i.cardId))];
-  let done = 0;
-  const fulls = new Map();
-  await pool(keys, 4, async (k) => {
-    const [lang, id] = k.split('|');
-    try { fulls.set(k, await getCard(id, lang)); } catch { /* keep old price */ }
-    label.textContent = `Refreshing ${++done}/${keys.length}…`;
-  });
-  const now = Date.now();
-  const changed = all.filter((i) => fulls.has(i.lang + '|' + i.cardId)).map((i) => {
-    const full = fulls.get(i.lang + '|' + i.cardId);
-    return { ...i, prices: pricesFor(full, i.variant), rarity: i.rarity || full.rarity || null, pricedAt: now, updatedAt: now };
-  });
-  if (changed.length) await saveItems(changed);
-  label.textContent = 'Refresh prices';
-  btn.disabled = false;
-  toast(`Prices updated for ${changed.length} card${changed.length === 1 ? '' : 's'}`, { kind: 'ok' });
+  try {
+    const keys = [...new Set(all.map((i) => i.lang + '|' + i.cardId))];
+    let done = 0;
+    const fulls = new Map();
+    await pool(keys, 4, async (k) => {
+      const [lang, id] = k.split('|');
+      try { fulls.set(k, await getCard(id, lang)); } catch { /* keep old price */ }
+      label.textContent = `Refreshing ${++done}/${keys.length}…`;
+    });
+    const now = Date.now();
+    const changed = all.filter((i) => fulls.has(i.lang + '|' + i.cardId)).map((i) => {
+      const full = fulls.get(i.lang + '|' + i.cardId);
+      return { ...i, prices: pricesFor(full, i.variant), rarity: i.rarity || full.rarity || null, pricedAt: now, updatedAt: now };
+    });
+    if (changed.length) await saveItems(changed);
+    // v4: say so when nothing could be fetched, instead of "Prices updated for 0 cards"
+    if (changed.length) toast(`Prices updated for ${changed.length} card${changed.length === 1 ? '' : 's'}`, { kind: 'ok' });
+    else toast("Couldn't reach the price service. Your old prices are kept.", { kind: 'err' });
+  } finally {
+    // v4: the button can never stay stuck on "Refreshing…" if saving fails
+    label.textContent = 'Refresh prices';
+    btn.disabled = false;
+  }
 });
 
 // ---------- profiles ----------
@@ -1231,7 +1254,7 @@ function renderSyncBox() {
   if (!p.sync?.code) {
     box.innerHTML = `${intro}
       <div class="sync-row"><button class="btn btn-small btn-sky" type="button" data-sync="create"><svg><use href="#i-cloud"/></svg>Make a sync code</button></div>
-      <div class="sync-row"><label class="field" style="flex:1 1 220px"><input id="syncCodeIn" type="text" placeholder="Have a code? XXXXX-XXXXX-XXXXX-XXXXX" autocomplete="off" autocapitalize="characters" spellcheck="false"></label>
+      <div class="sync-row"><label class="field" style="flex:1 1 220px"><input id="syncCodeIn" type="text" aria-label="Sync code from your other device" placeholder="Have a code? XXXXX-XXXXX-XXXXX-XXXXX" autocomplete="off" autocapitalize="characters" spellcheck="false"></label>
       <button class="btn btn-small" type="button" data-sync="link">Link</button></div>`;
     return;
   }
@@ -1355,8 +1378,34 @@ $('#wipeProfile').addEventListener('click', async () => {
 });
 
 // ---------- settings ----------
+// v4: the segmented controls (theme, price source, "Found cards go to") work like real radio groups:
+// one Tab stop on the checked option, arrow keys (and Home/End) move to the next option and pick it.
+function setChecked(group, isOn) {
+  for (const b of $$('[role="radio"]', group)) {
+    const on = isOn(b);
+    b.setAttribute('aria-checked', String(on));
+    b.tabIndex = on ? 0 : -1;
+  }
+}
+const RADIO_KEYS = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 };
+for (const group of $$('[role="radiogroup"]')) {
+  group.addEventListener('keydown', (e) => {
+    const radios = $$('[role="radio"]', group);
+    const i = radios.indexOf(e.target);
+    if (i < 0) return;
+    let j;
+    if (e.key in RADIO_KEYS) j = (i + RADIO_KEYS[e.key] + radios.length) % radios.length;
+    else if (e.key === 'Home') j = 0;
+    else if (e.key === 'End') j = radios.length - 1;
+    else return;
+    e.preventDefault();
+    radios[j].focus();
+    radios[j].click();
+  });
+}
+
 function renderSettings() {
-  for (const b of $$('#sourceSeg [data-source]')) b.setAttribute('aria-checked', String(b.dataset.source === state.settings.source));
+  setChecked($('#sourceSeg'), (b) => b.dataset.source === state.settings.source);
   $('#langSel').innerHTML = Object.entries(LANGS).map(([k, l]) => `<option value="${k}" ${k === state.settings.lang ? 'selected' : ''}>${l}</option>`).join('');
   renderDbStatus();
   renderProfiles();
@@ -1379,7 +1428,7 @@ function applyTheme() {
 
 function renderTheme() {
   const t = state.settings.theme || 'auto';
-  for (const b of $$('#themeSeg [data-theme-opt]')) b.setAttribute('aria-checked', String(b.dataset.themeOpt === t));
+  setChecked($('#themeSeg'), (b) => b.dataset.themeOpt === t);
 }
 
 function setTheme(t) {
@@ -1417,7 +1466,7 @@ $('#langSel').addEventListener('change', (e) => {
 $('#dbUpdate').addEventListener('click', () => ensureCatalog(true).then(() => toast('Card list is up to date', { kind: 'ok' })).catch(() => toast("Couldn't update the card list.", { kind: 'err' })));
 
 function renderTarget() {
-  for (const b of $$('#targetSeg [data-target]')) b.setAttribute('aria-checked', String(b.dataset.target === state.settings.target));
+  setChecked($('#targetSeg'), (b) => b.dataset.target === state.settings.target);
 }
 $('#targetSeg').addEventListener('click', (e) => {
   const t = e.target.closest('[data-target]')?.dataset.target;

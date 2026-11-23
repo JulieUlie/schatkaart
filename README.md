@@ -8,6 +8,18 @@ every print with the same name so you can pick the exact set and number. Since v
 
 Made for yard sales (scan a stack onto the **pile** and see its total) and for sorting a **collection**.
 
+## What's new in v4 (23 Nov 2026)
+
+A polish release:
+
+- **Honest totals across currencies.** When the chosen market has no price for a card, the other market's price is now shown in its own currency (a TCGplayer-only card shows `US$40.00`, not `€40.00`) and is kept out of the total, with a note such as *"1 only on TCGplayer"*. v3 put the dollar amount behind a euro sign and added it to the euro total.
+- **No sideways scrolling on phones.** A card with a long set name no longer makes the scan page wider than the screen, and the pile shows the card name and its set on two lines instead of glued together.
+- **Start screen stays usable after a find.** Once the "Added to your pile" card appears, the start screen gets compact so *Take a photo*, *Pick a photo* and *Search by name* stay visible and tappable above it.
+- **Keyboard-friendly choices.** "Found cards go to", Theme and Prices work like real radio groups: one Tab stop, arrow keys and Home/End to pick.
+- **Messages no longer cover the menu on wide screens.** Toasts sit at the bottom right on laptops (on phones they stay at the top, away from the bottom tab bar).
+- **Clearer price refresh.** If the price service can't be reached, *Refresh prices* says so and keeps the old prices, and the button can never stay stuck on "Refreshing…".
+- **Named search fields** for screen readers (collection search, card search, sync code).
+
 ## How it works
 
 | Part | What it does |
@@ -28,9 +40,9 @@ Playwright tests in TypeScript: `npm install`, then `npm test`. Playwright start
 | Sync API | `tests/api/` | Storing and reading encrypted collections, revisions and conflicts between devices, what the server keeps, refused input, the 8 MB limit, delete |
 | Logic | `tests/logic/` | The app's own modules in the browser: text helpers, reading card numbers from OCR text, search (numbers, typos, the second source, Pocket cards left out), prices per variant and source, sync codes, merging, and end-to-end encrypted sync where the server never sees a card name |
 | Detector | `tests/logic/detect.spec.ts` | Card-edge detection on the real binder photo in `test/fixtures` (corner error must stay under 5% of the card width) |
-| UI | `tests/ui/` | Welcome window, search, the pile and its total, undo, price source, collection, JSON/CSV export and import on a second device, camera errors, an axe accessibility scan |
+| UI | `tests/ui/` | Welcome window, search, the pile and its total, undo, price source, collection, JSON/CSV export and import on a second device, camera errors, axe accessibility scans (empty and with a card found), and the v4 regressions: no sideways scroll, start-screen buttons not covered, toasts off the menu, prices from the other market in their own currency, radio groups by keyboard, a failed price refresh |
 
-74 tests, stable over repeated runs. One known deviation is kept visible as `test.fail`: the detector's worst corner is 5.5% off on the binder photo, just over the 5% limit.
+87 tests (v4 added 13), stable over repeated runs. Google Fonts are blocked in the browser tests, so a slow font server cannot hold up the page load. One known deviation is kept visible as `test.fail`: the detector's worst corner is 5.5% off on the binder photo, just over the 5% limit.
 
 ## Run locally
 

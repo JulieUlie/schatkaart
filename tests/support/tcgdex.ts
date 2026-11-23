@@ -83,5 +83,7 @@ export async function mockTcgdex(target: Page | BrowserContext, { down = false }
   await target.route('**/data/tcgplayer-prices.json', (r) => r.fulfill({ json: { unit: 'USD', updated: '2026-11-16', sets: {} } }));
   // the second card source (Pokémon TCG data set), same format as site/data/extra-cards.json
   await target.route('**/data/extra-cards.json', (r) => r.fulfill({ json: EXTRA }));
+  // Google Fonts: a slow font stylesheet holds up the page's load event; the tests don't need Fredoka
+  await target.route(/^https:\/\/fonts\.(googleapis|gstatic)\.com\//, (r) => r.abort());
   return asked;
 }
